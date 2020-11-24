@@ -37,7 +37,6 @@ public class Planet : MonoBehaviour {
     public GameObject cloudPrefab;
 
     [Header("Erosion Variables")]
-    public int seed;
     public int weatherlessDropletIterations = 5;
     [Range(1, 8)]
     public int erosionRadius = 1; // at 1 only the vertex where the drop's at is affected
@@ -68,10 +67,10 @@ public class Planet : MonoBehaviour {
     private List<Color> colors = new List<Color>();
     private List<int> indices = new List<int>();
     private List<int> oldIndices;
+
+    // Vertex Data Structures
     private Dictionary<string, int> vertexExistence = new Dictionary<string, int>();
     private Dictionary<int, List<int>> vertexFaces = new Dictionary<int, List<int>>();
-
-    // Vertex Data Structure
     private List<List<List<int>>> GPCChunkMap = new List<List<List<int>>>();
     private List<int> oceanVertices = new List<int>();
 
@@ -83,15 +82,18 @@ public class Planet : MonoBehaviour {
     // Indices and weights of erosion brush precomputed for every node
     private int[][] erosionBrushIndices;
     private float[][] erosionBrushWeights;
-    private List<Vector2> flowDirections;
-    private System.Random prng;
 
-    private int currentSeed;
     private int currentErosionRadius;
     private int currentVertexCount;
 
 
     // state tracking
+    // DONE: Nothing is happening
+    // GENERATING_ICOSAHEDRON: The initial icosahedron model is generating
+    // REFINING_TRIANGLES: The icosahedron's faces are being split to create the icosphere
+    // GENERATE_PERLIN_NOISE: A perlin noise value is being calculated and applied to each vertex of the mesh
+    // GENERATE_NORMALS: Each vertex is calculating it's normal
+    // RUN_SIMULATION: The weather/erosion simulation is running
     private enum states {DONE, GENERATING_ICOSAHEDRON, REFINING_TRIANGLES, GENERATE_PERLIN_NOISE, GENERATE_NORMALS, RUN_SIMULATION};
     private states state = states.DONE;
 
@@ -120,6 +122,7 @@ public class Planet : MonoBehaviour {
         // Get point on equator
         Vector3 equatorPoint = new Vector3(position.x, 0, position.z);
         equatorPoint = equatorPoint.normalized;
+        // Account for the poles edgecase
         if (equatorPoint == Vector3.zero)
         {
             return new Vector2(0, Mathf.Sign(position.y) * 90);
@@ -147,6 +150,7 @@ public class Planet : MonoBehaviour {
     // Sets the state variable to pState and handles any extra computations that occur on a state transition
     private void SetState(states pState)
     {
+        // Handle leaving a state
         switch (state)
         {
             case states.GENERATE_NORMALS:
@@ -156,7 +160,9 @@ public class Planet : MonoBehaviour {
                 GenerateSphereNormalsAndSetRadius();
                 break;
         }
+        // Switch the state
         state = pState;
+        // Handle starting a state
         switch (state)
         {
             case states.DONE:
@@ -183,7 +189,7 @@ public class Planet : MonoBehaviour {
                 simulationIterations = 0;
                 DestroyClouds();
                 GetOceanVertices();
-                ErosionInitialization(true);
+                ErosionInitialization();
                 break;
         }
     }
@@ -193,6 +199,7 @@ public class Planet : MonoBehaviour {
     // Sets the vertices, normals, and faces of the planet mesh
     private void UpdatePlanetMesh()
     {
+        // By default a mesh can only contain 2^16 vertices, Set this to be 2^32
         meshFilter.sharedMesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
         meshFilter.sharedMesh.Clear(false);
         meshFilter.sharedMesh.SetVertices(vertices);
@@ -214,33 +221,45 @@ public class Planet : MonoBehaviour {
 
     // ====================================================================================== Generate Sphere
 
+    // vertex is a position in space
+    // returns a string that uniqely identifies a vertex in as long as 2 vertices aren't within 0.001 unity units^3 of eachother
     private string VertexToString(Vector3 vertex)
     {
         return RoundToPlace(vertex.x, 1000) + "," + RoundToPlace(vertex.y, 1000) + "," + RoundToPlace(vertex.z, 1000);
     }
 
     // Adds vertex to vertices if it is not already present
+    // returns the index in vertices of the newly created or existing vertex
     private int AddVertex(Vector3 vertex)
     {
+        // Check if the vertex exists by using a C# Dictionary
         string vString = VertexToString(vertex);
         if (vertexExistence.ContainsKey(vString))
         {
+            // vertex already exists
             return vertexExistence[vString];
         }
+        // vertex does not exist create it
         vertices.Add(vertex);
         int rv = vertices.Count - 1;
+        // add the vertex to the existence dictionary
         vertexExistence.Add(vString, rv);
+        // add extra data to keep track of for a vertex
         AddVertexData(rv);
         return rv;
     }
 
+    // vIndex is a vertices index
     // Adds the next face index to contain vertex in vertexFaces
     private void AddVertexFace(int vIndex)
     {
+        // check if the vertex already has a position in vertexFaces
         if (!vertexFaces.ContainsKey(vIndex))
         {
+            // vIndex doesn't have a position, add it
             vertexFaces.Add(vIndex, new List<int>());
         }
+        // add the current face to this vertex's faces
         vertexFaces[vIndex].Add(indices.Count);
     }
 
@@ -248,10 +267,12 @@ public class Planet : MonoBehaviour {
     // this function serves the purpose of readability when adding faces to the mesh
     private void AddFace(int index1, int index2, int index3)
     {
+        // add this face to each of the vertices face list
         AddVertexFace(index1);
         AddVertexFace(index2);
         AddVertexFace(index3);
 
+        // Create the face
         indices.Add(index1);
         indices.Add(index2);
         indices.Add(index3);
@@ -316,7 +337,7 @@ public class Planet : MonoBehaviour {
         SetState(states.REFINING_TRIANGLES);
     }
 
-    // loops through each face and splits it into (icosphereSplits+1)^2 faces but only adding vertices that don't already exist
+    // loops through each face and splits it into icosphereSplits^2 faces but only adding vertices that don't already exist
     private void RefineFaces()
     {
         int face_start = currentFace * verticesPerFace;
@@ -653,7 +674,7 @@ public class Planet : MonoBehaviour {
     }
 
     // initializes the erosion brushes if needed
-    private void ErosionInitialization(bool resetSeed)
+    private void ErosionInitialization()
     {
         if (erosionBrushIndices == null || currentErosionRadius != erosionRadius || currentVertexCount != vertices.Count)
         {

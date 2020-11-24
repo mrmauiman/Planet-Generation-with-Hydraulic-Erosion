@@ -107,10 +107,7 @@ Shader "Custom/PlanetShader"
         // Physically based Standard lighting model, and enable shadows on all light types
         #pragma surface surf Lambert vertex:vert
 
-		#include "WhiteNoise.cginc"
-		#include "Easing.cginc"
-
-        struct Input
+		struct Input
         {
 			float vertexHeight;
 			float rockRatio;
